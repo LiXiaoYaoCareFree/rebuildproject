@@ -27,7 +27,15 @@ export class ClaudeCodeProvider implements Provider {
   constructor(opts: ClaudeCodeProviderOptions = {}) {
     this.model = opts.model ?? "default";
     this.binary = opts.binary ?? "claude";
-    this.timeoutMs = opts.timeoutMs ?? 5 * 60_000;
+    // Default 15 min per call: "book-like" chapters (10-20KB markdown +
+    // 9 required sections) commonly need several minutes per chapter.
+    // Override via env: REBUILDPROJECT_CLAUDE_TIMEOUT_MS=900000
+    const envTimeout = Number(process.env.REBUILDPROJECT_CLAUDE_TIMEOUT_MS);
+    this.timeoutMs =
+      opts.timeoutMs ??
+      (Number.isFinite(envTimeout) && envTimeout > 0
+        ? envTimeout
+        : 15 * 60_000);
   }
 
   static async detect(binary = "claude"): Promise<boolean> {
