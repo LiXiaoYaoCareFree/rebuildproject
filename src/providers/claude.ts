@@ -1,4 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { withRetry } from "../utils/retry.js";
+import { logger } from "../utils/logger.js";
 import type {
   CompletionRequest,
   CompletionResult,
@@ -37,13 +39,24 @@ export class ClaudeProvider implements Provider {
         content: m.content,
       }));
 
-    const res = await this.client.messages.create({
-      model: this.model,
-      max_tokens: req.maxTokens ?? 8000,
-      temperature: req.temperature ?? 0.3,
-      system: system || undefined,
-      messages,
-    });
+    const res = await withRetry(
+      () =>
+        this.client.messages.create({
+          model: this.model,
+          max_tokens: req.maxTokens ?? 8000,
+          temperature: req.temperature ?? 0.3,
+          system: system || undefined,
+          messages,
+        }),
+      {
+        onRetry: (err, attempt, delayMs) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.dim(
+            `  Anthropic 第 ${attempt} 次瞬时错误,${delayMs / 1000}s 后重试:${msg.slice(0, 120)}`
+          );
+        },
+      }
+    );
 
     const text = res.content
       .map((b) => (b.type === "text" ? b.text : ""))

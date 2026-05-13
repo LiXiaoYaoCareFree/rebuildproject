@@ -48,22 +48,53 @@ export const authorStep: Step<PlanOutput, AuthorOutput> = {
     logger.dim(
       `  写《00 · 整体浏览》完成（${
         overviewMarkdown.length
-      } 字），开始并发写 ${otherChapters.length} 章（concurrency=${concurrency}，每章超时 5 分钟）`
+      } 字），开始并发写 ${otherChapters.length} 章（concurrency=${concurrency}，瞬时错误自动重试 3 次）`
     );
 
     const chapters = new Map<string, string>();
+    const failedChapters: { id: string; title: string; err: string }[] = [];
     await mapWithLimit(otherChapters, concurrency, async (c) => {
       const tStart = Date.now();
       logger.dim(`  ▶ 开始 ${c.id} · ${c.title}`);
       bar.update(done, { status: c.title });
-      const md = await authorOne(c, ctx, input, maxRepairs);
-      chapters.set(c.slug, md);
-      done++;
-      const secs = ((Date.now() - tStart) / 1000).toFixed(1);
-      logger.dim(`  ✓ ${c.id} 完成（${secs}s，${md.length} 字）`);
+      try {
+        const md = await authorOne(c, ctx, input, maxRepairs);
+        chapters.set(c.slug, md);
+        done++;
+        const secs = ((Date.now() - tStart) / 1000).toFixed(1);
+        logger.dim(`  ✓ ${c.id} 完成（${secs}s，${md.length} 字）`);
+      } catch (err) {
+        // Don't let one chapter take down the whole book. Record it as a
+        // placeholder so writer.ts still has something for the slug, and the
+        // user can re-run later to fill the gap.
+        done++;
+        const msg = err instanceof Error ? err.message : String(err);
+        failedChapters.push({ id: c.id, title: c.title, err: msg });
+        const stub = [
+          `# ${c.id} · ${c.title}`,
+          "",
+          "> ⚠️ 本章生成时遇到错误，未能完成。请稍后重新运行 `rebuildproject generate` 重试本章。",
+          "",
+          "```",
+          msg,
+          "```",
+          "",
+        ].join("\n");
+        chapters.set(c.slug, stub);
+        const secs = ((Date.now() - tStart) / 1000).toFixed(1);
+        logger.dim(`  ✖ ${c.id} 失败（${secs}s）：${msg.slice(0, 200)}`);
+      }
       bar.update(done, { status: c.title });
     });
     bar.stop();
+
+    if (failedChapters.length) {
+      logger.warn(
+        `共有 ${failedChapters.length} 章生成失败，已写入占位 stub：${failedChapters
+          .map((f) => f.id)
+          .join(", ")}。可重跑 \`rebuildproject generate\` 补齐。`
+      );
+    }
 
     return { ...input, chapters, overviewMarkdown };
   },

@@ -1,4 +1,6 @@
 import { exec, which } from "../utils/exec.js";
+import { withRetry } from "../utils/retry.js";
+import { logger } from "../utils/logger.js";
 import type {
   CompletionRequest,
   CompletionResult,
@@ -65,10 +67,21 @@ export class ClaudeCodeProvider implements Provider {
     // Disable filesystem-modifying tools — we want pure text generation.
     args.push("--disallowedTools", "Edit,Write,NotebookEdit");
 
-    const res = await exec(this.binary, args, {
-      stdin: userText,
-      timeoutMs: this.timeoutMs,
-    });
+    const res = await withRetry(
+      () =>
+        exec(this.binary, args, {
+          stdin: userText,
+          timeoutMs: this.timeoutMs,
+        }),
+      {
+        onRetry: (err, attempt, delayMs) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.dim(
+            `  claude 第 ${attempt} 次返回瞬时错误,${delayMs / 1000}s 后重试。原因:${msg.slice(0, 120)}`
+          );
+        },
+      }
+    );
 
     return { text: res.stdout.trim() };
   }
