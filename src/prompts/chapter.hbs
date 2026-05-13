@@ -1,0 +1,48 @@
+为项目搭建手册编写：《{{chapter.id}} · {{chapter.title}}》
+
+## 上下文
+- 项目主语言：{{stack.language}}（{{stack.runtime}}）
+- 包管理器：{{stack.packageManager}}
+- 本章类型：{{chapter.kind}}
+{{#if chapter.deps.length}}
+- 前置章节：{{#each chapter.deps}}《{{this}}》{{#unless @last}}, {{/unless}}{{/each}}
+{{/if}}
+
+## 本章涉及的文件（必须**完整**呈现以下每个文件的内容；不要省略、不要写占位符）
+{{#each filesContent}}
+### `{{this.path}}`
+```{{this.lang}}
+{{this.content}}
+```
+
+{{/each}}
+
+## 输出要求
+按以下骨架输出 markdown：
+
+# {{chapter.id}} · {{chapter.title}}
+
+## 目标
+（一两句话说清这一章读完能得到什么——最好对应到项目的具体能力）
+
+## 前置
+{{#if chapter.deps.length}}
+（提醒读者已经完成的前置章节）
+{{else}}
+（如无前置，写"无；这是手册第一章操作步骤"）
+{{/if}}
+
+## 为什么这一步
+（解释**为什么**这些文件要在这一章引入，而不是更早或更晚——理由要落在依赖关系/构建顺序上）
+
+## 操作步骤
+（按顺序给出可执行步骤。每个文件用单独的小节，文件路径用反引号。每个文件都给出**完整内容**的代码块，使用 ```lang:文件相对路径 的形式开头，例如：
+```ts:src/foo.ts
+...full content...
+```
+不要省略，不要写 "// rest unchanged"。）
+
+## 验证
+（给读者具体的检查命令：跑什么、看到什么算成功。例如 `pnpm typecheck`、`node ./dist/cli.js --help`、单测命令等）
+
+直接开始输出 markdown，不要前言。

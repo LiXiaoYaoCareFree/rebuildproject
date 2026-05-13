@@ -1,0 +1,45 @@
+为以下项目编写《00 - 项目总览与架构》一章。
+
+## 项目栈信息
+- 主语言：{{stack.language}}
+- 运行时：{{stack.runtime}}
+- 包管理器：{{stack.packageManager}}
+- 构建工具：{{stack.buildTool}}
+- 框架：{{#each stack.frameworks}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}
+- 测试框架：{{#each stack.testFrameworks}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}
+- 入口文件：{{#each stack.entryPoints}}`{{this}}`{{#unless @last}}, {{/unless}}{{/each}}
+
+## 文件清单概览（按层级）
+{{fileTree}}
+
+## 章节地图（后续要写的章节）
+{{chaptersMap}}
+
+## 输出要求
+按以下结构输出 markdown：
+
+# 00 · 项目总览与架构
+
+## 这是什么项目
+（一段话，用项目自身的语言概括它在做什么、解决什么问题）
+
+## 技术栈速览
+（表格列出语言、运行时、框架、构建工具）
+
+## 架构鸟瞰
+（用 mermaid 画一张组件/数据流图）
+
+```mermaid
+（在这里画图）
+```
+
+## 模块边界
+（列出顶层模块及其职责，每个模块一行）
+
+## 阅读路线
+（列出后续章节顺序与每章读完能得到什么，呼应"章节地图"）
+
+## 准备工作
+（读者开始动手前必须装好的工具：Node 版本、Python 版本、docker 等）
+
+直接开始输出 markdown，不要再加任何前言。
