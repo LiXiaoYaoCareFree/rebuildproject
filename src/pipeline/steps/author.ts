@@ -98,7 +98,7 @@ async function authorOne(
         { role: "system", content: "你正在迭代修订一份搭建手册章节，只输出修订后的 markdown。" },
         { role: "user", content: repairPrompt },
       ],
-      maxTokens: 8000,
+      maxTokens: 16000,
       temperature: 0.2,
     });
     md = res.text.trim();

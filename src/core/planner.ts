@@ -18,7 +18,7 @@ export interface Chapter {
   kind: ChapterKind;
   /** files included as full content */
   files: LayeredFile[];
-  /** prior chapter slugs to reference */
+  /** prior chapter labels (readable string) to reference */
   deps: string[];
   /** for module chapters, place under modules/ subdir */
   subdir?: string;
@@ -29,14 +29,23 @@ export interface Plan {
   chapters: Chapter[];
 }
 
+/**
+ * Planner produces a sequence of chapters that double as "子任务"——a
+ * curriculum where each chapter delivers a concrete artifact and unlocks
+ * the next one. Titles are written so the running heading reads:
+ *
+ *   "# 01 · 子任务 01 · 选型与脚手架——把骨架立起来"
+ *
+ * That phrasing keeps the "做中学" subtask chain visible in every page.
+ */
 export function planChapters(layered: Layered, stack: Stack): Plan {
   const chapters: Chapter[] = [];
 
-  // 00 立意：从代码反推真实意图、画出架构、铺开学习路线
+  // 00 立意：从代码反推真实意图、画出架构、铺开学习路线 + 提出总任务 + 拆子任务
   chapters.push({
     id: "00",
     slug: "00-intent",
-    title: "立意与全景：这个项目到底在做什么",
+    title: "整体浏览与总任务：你接下来要重建什么",
     kind: "overview",
     files: [],
     deps: [],
@@ -47,10 +56,10 @@ export function planChapters(layered: Layered, stack: Stack): Plan {
     chapters.push({
       id: "01",
       slug: "01-stack-and-scaffold",
-      title: "选型与脚手架：栈为什么这么挑",
+      title: "子任务 01 · 选型与脚手架——把骨架立起来",
       kind: "scaffold",
       files: layered.byLayer.L1,
-      deps: ["00-intent"],
+      deps: ["00 · 整体浏览与总任务"],
     });
   }
 
@@ -59,10 +68,10 @@ export function planChapters(layered: Layered, stack: Stack): Plan {
     chapters.push({
       id: "02",
       slug: "02-deps-and-config",
-      title: "依赖与配置：把工程跑起来的全部基础",
+      title: "子任务 02 · 依赖与配置——把工程跑起来",
       kind: "dependencies",
       files: layered.byLayer.L2,
-      deps: ["01-stack-and-scaffold"],
+      deps: ["01 · 选型与脚手架"],
     });
   }
 
@@ -71,10 +80,10 @@ export function planChapters(layered: Layered, stack: Stack): Plan {
     chapters.push({
       id: "03",
       slug: "03-core-abstractions",
-      title: "核心抽象：入口、契约与跨模块语言",
+      title: `子任务 03 · 核心抽象——铺好跨模块的"语言"`,
       kind: "core",
       files: layered.byLayer.L3,
-      deps: ["02-deps-and-config"],
+      deps: ["02 · 依赖与配置"],
     });
   }
 
@@ -87,23 +96,28 @@ export function planChapters(layered: Layered, stack: Stack): Plan {
     chapters.push({
       id,
       slug: `${id}-${slugify(name)}`,
-      title: `模块深挖 · ${name}：思路、重点、难点`,
+      title: `子任务 ${id} · 模块深挖：${name}——把血肉填进骨架`,
       kind: "module",
       files: list,
-      deps: ["03-core-abstractions"],
+      deps: ["03 · 核心抽象"],
       subdir: "04-modules",
     });
   }
 
   // 05 韧性与测试：错误路径、边界、回归保护
   if (layered.byLayer.L5.length) {
+    const modDeps = chapters
+      .filter((c) => c.kind === "module")
+      .map((c) => c.id);
     chapters.push({
       id: "05",
       slug: "05-resilience-and-tests",
-      title: "韧性与测试：守住边界，防止退化",
+      title: "子任务 05 · 韧性与测试——守住边界，防止退化",
       kind: "tests",
       files: layered.byLayer.L5,
-      deps: chapters.filter((c) => c.kind === "module").map((c) => c.slug),
+      deps: modDeps.length
+        ? [`04-* · 全部模块（${modDeps.join(", ")}）`]
+        : ["03 · 核心抽象"],
     });
   }
 
@@ -112,10 +126,10 @@ export function planChapters(layered: Layered, stack: Stack): Plan {
     chapters.push({
       id: "06",
       slug: "06-ship-and-ops",
-      title: "出厂与运维：从 main 分支到生产环境",
+      title: "子任务 06 · 出厂与运维——从 main 分支到生产环境",
       kind: "deployment",
       files: layered.byLayer.L6,
-      deps: chapters.filter((c) => c.kind !== "overview").map((c) => c.slug),
+      deps: ["前面全部子任务"],
     });
   }
 

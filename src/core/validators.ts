@@ -11,17 +11,34 @@ export interface ChapterValidation {
 }
 
 /**
- * Each chapter must teach **思路 / 重点 / 难点 / 精髓**, not just steps.
- * The validator enforces that — chapters missing any required section get
- * sent back to the AI for repair (see pipeline/steps/author.ts).
+ * Each chapter must teach 子任务定位 / 思路 / 知识点 / 重点 / 难点 / 实现 /
+ * 做中学验证 / 精髓 / 串通下一站 — not just dump steps. The validator enforces
+ * the contract; failures get sent back to the AI for repair (see
+ * pipeline/steps/author.ts).
  */
 const DEPTH_SECTIONS = [
+  "子任务定位",
   "设计思路",
+  "知识点",       // matches "知识点介绍" or "知识点小课" etc.
   "重点",
   "难点",
   "实现步骤",
+  "验证",         // matches "做中学验证" or "验证"
   "精髓",
-  "验证",
+  "串通",         // matches "串通下一站"
+];
+
+const OVERVIEW_REQUIRED_SECTIONS = [
+  "项目意图",
+  "总任务",
+  "整体浏览",
+  "子任务拆解",
+  "子任务依赖",
+  "关键设计决策",
+  "关键技术",       // matches "贯穿全书的关键技术清单"
+  "重难点地图",
+  "学习路线",
+  "准备工作",
 ];
 
 const REQUIRED_SECTIONS_BY_KIND: Record<string, string[]> = {
@@ -31,7 +48,7 @@ const REQUIRED_SECTIONS_BY_KIND: Record<string, string[]> = {
   module:       ["目标", "前置", ...DEPTH_SECTIONS],
   tests:        ["目标", ...DEPTH_SECTIONS],
   deployment:   ["目标", ...DEPTH_SECTIONS],
-  overview:     ["项目意图", "架构", "关键设计决策", "重难点地图", "学习路线"],
+  overview:     OVERVIEW_REQUIRED_SECTIONS,
 };
 
 const PLACEHOLDER_PATTERNS = [

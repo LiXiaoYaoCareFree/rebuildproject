@@ -13,7 +13,7 @@ program
   .description(
     "把本地代码反推成一份可执行的搭建手册——按层级一步一步教你重建项目"
   )
-  .version("0.3.0");
+  .version("0.4.0");
 
 registerGenerate(program);
 registerConfig(program);

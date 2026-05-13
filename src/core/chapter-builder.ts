@@ -50,7 +50,7 @@ export async function buildOverview(input: BuildOverviewInput): Promise<string> 
       { role: "system", content: renderSystem(input.language) },
       { role: "user", content: userPrompt },
     ],
-    maxTokens: 6000,
+    maxTokens: 12000,
     temperature: 0.3,
   });
   return res.text.trim();
@@ -83,7 +83,7 @@ export async function buildChapter(input: BuildChapterInput): Promise<string> {
       { role: "system", content: renderSystem(input.language) },
       { role: "user", content: userPrompt },
     ],
-    maxTokens: 8000,
+    maxTokens: 16000,
     temperature: 0.3,
   });
   return res.text.trim();
