@@ -28,8 +28,30 @@ export const PIPELINE = [
 export async function runPipeline(ctx: Context): Promise<void> {
   let cursor: unknown = undefined;
   for (const step of PIPELINE) {
-    const sp = ora(`${chalk.magenta(step.name)} …`).start();
+    // Author owns its own multi-line progress UI (cliProgress + per-chapter
+    // logs). An ora spinner on the same stdout line would overwrite the
+    // progress bar and hide all visible progress, making the run look stuck.
+    // For Author we print plain headers; for the others we use ora.
+    const ownsOwnUI = step.name === "Author";
     const t0 = Date.now();
+
+    if (ownsOwnUI) {
+      console.log(`${chalk.magenta("▸")} ${chalk.magenta(step.name)} …`);
+      try {
+        cursor = await (step as Step<unknown, unknown>).run(ctx, cursor);
+        console.log(
+          `${chalk.green("✔")} ${chalk.magenta(step.name)} ${chalk.gray(
+            `${Date.now() - t0}ms`
+          )}`
+        );
+      } catch (err) {
+        console.log(`${chalk.red("✖")} ${chalk.magenta(step.name)} 失败`);
+        throw err;
+      }
+      continue;
+    }
+
+    const sp = ora(`${chalk.magenta(step.name)} …`).start();
     try {
       cursor = await (step as Step<unknown, unknown>).run(ctx, cursor);
       sp.succeed(`${chalk.magenta(step.name)} ${chalk.gray(`${Date.now() - t0}ms`)}`);

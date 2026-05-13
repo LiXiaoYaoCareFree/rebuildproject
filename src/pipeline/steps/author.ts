@@ -45,12 +45,22 @@ export const authorStep: Step<PlanOutput, AuthorOutput> = {
     bar.start(otherChapters.length, 0, { status: "" });
     let done = 0;
 
+    logger.dim(
+      `  写《00 · 整体浏览》完成（${
+        overviewMarkdown.length
+      } 字），开始并发写 ${otherChapters.length} 章（concurrency=${concurrency}，每章超时 5 分钟）`
+    );
+
     const chapters = new Map<string, string>();
     await mapWithLimit(otherChapters, concurrency, async (c) => {
+      const tStart = Date.now();
+      logger.dim(`  ▶ 开始 ${c.id} · ${c.title}`);
       bar.update(done, { status: c.title });
       const md = await authorOne(c, ctx, input, maxRepairs);
       chapters.set(c.slug, md);
       done++;
+      const secs = ((Date.now() - tStart) / 1000).toFixed(1);
+      logger.dim(`  ✓ ${c.id} 完成（${secs}s，${md.length} 字）`);
       bar.update(done, { status: c.title });
     });
     bar.stop();
