@@ -1,16 +1,30 @@
+import path from "node:path";
 import chalk from "chalk";
-import cliProgress from "cli-progress";
 import type { Step, PlanOutput, AuthorOutput } from "../types.js";
 import type { Chapter } from "../../core/planner.js";
 import { buildOverview, buildChapter } from "../../core/chapter-builder.js";
 import { validateChapter, summarizeIssues } from "../../core/validators.js";
 import { mapWithLimit } from "../../utils/concurrency.js";
 import { logger } from "../../utils/logger.js";
+import {
+  ensureOutDir,
+  writeReadme,
+  writeChapterFile,
+} from "../../core/writer.js";
 
 /**
  * Step 4: ask the AI to write each chapter, then self-critique. If a chapter
  * fails validation (missing sections, missing file blocks, placeholders), feed
  * the issues back and ask the AI to repair, up to `maxRepairs` rounds.
+ *
+ * Behavior:
+ *  - Writes README + overview as soon as overview is generated, so the
+ *    rebuild-guide/ directory becomes visible early.
+ *  - Writes each chapter file to disk the moment it's authored — if the run
+ *    crashes mid-way, every completed chapter is already on disk.
+ *  - Emits one line per chapter event (start / done / fail) with `[N/total]`
+ *    counter. No fancy progress bar — concurrent log lines and TTY bars
+ *    don't compose (causes redraw glitches / duplicate lines).
  */
 export const authorStep: Step<PlanOutput, AuthorOutput> = {
   name: "Author",
@@ -20,7 +34,13 @@ export const authorStep: Step<PlanOutput, AuthorOutput> = {
     const maxRepairs = cfg.maxRepairs ?? 1;
     const concurrency = cfg.concurrency ?? 3;
 
-    // Overview first — it doesn't have file-block requirements, just write it.
+    const outDir = await ensureOutDir(ctx.cwd);
+    await writeReadme(outDir, input.plan);
+    logger.dim(`  目录已就绪：${chalk.cyan(path.relative(ctx.cwd, outDir) || ".")}/`);
+
+    // 1) Overview — write to disk immediately so the run feels alive.
+    const tOverview = Date.now();
+    logger.dim("  ▶ 开始 00 · 整体浏览与总任务");
     const overviewMarkdown = await buildOverview({
       provider,
       language,
@@ -28,46 +48,46 @@ export const authorStep: Step<PlanOutput, AuthorOutput> = {
       layered: input.layered,
       plan: input.plan,
     });
+    const overviewChapter = input.plan.chapters.find((c) => c.kind === "overview");
+    if (overviewChapter) {
+      const p = await writeChapterFile(outDir, overviewChapter, overviewMarkdown);
+      logger.dim(
+        `  ✓ 00 完成（${((Date.now() - tOverview) / 1000).toFixed(1)}s，${
+          overviewMarkdown.length
+        } 字）→ ${chalk.cyan(path.relative(ctx.cwd, p))}`
+      );
+    }
 
+    // 2) Other chapters — concurrent, each writes to disk on completion.
     const otherChapters = input.plan.chapters.filter(
       (c) => c.kind !== "overview"
     );
-
-    const bar = new cliProgress.SingleBar(
-      {
-        format: `  章节 ${chalk.cyan("{bar}")} {percentage}% | {value}/{total} | {status}`,
-        barCompleteChar: "█",
-        barIncompleteChar: "░",
-        hideCursor: true,
-      },
-      cliProgress.Presets.shades_classic
-    );
-    bar.start(otherChapters.length, 0, { status: "" });
-    let done = 0;
-
+    const total = otherChapters.length;
     logger.dim(
-      `  写《00 · 整体浏览》完成（${
-        overviewMarkdown.length
-      } 字），开始并发写 ${otherChapters.length} 章（concurrency=${concurrency}，瞬时错误自动重试 3 次）`
+      `  开始并发写 ${total} 章（concurrency=${concurrency}，瞬时错误自动重试 3 次，单章失败不影响其他章）`
     );
 
+    let done = 0;
     const chapters = new Map<string, string>();
     const failedChapters: { id: string; title: string; err: string }[] = [];
+
     await mapWithLimit(otherChapters, concurrency, async (c) => {
       const tStart = Date.now();
       logger.dim(`  ▶ 开始 ${c.id} · ${c.title}`);
-      bar.update(done, { status: c.title });
       try {
         const md = await authorOne(c, ctx, input, maxRepairs);
         chapters.set(c.slug, md);
+        const p = await writeChapterFile(outDir, c, md);
         done++;
         const secs = ((Date.now() - tStart) / 1000).toFixed(1);
-        logger.dim(`  ✓ ${c.id} 完成（${secs}s，${md.length} 字）`);
+        logger.dim(
+          `  ✓ [${done}/${total}] ${c.id} 完成（${secs}s，${md.length} 字）→ ${chalk.cyan(
+            path.relative(ctx.cwd, p)
+          )}`
+        );
       } catch (err) {
-        // Don't let one chapter take down the whole book. Record it as a
-        // placeholder so writer.ts still has something for the slug, and the
-        // user can re-run later to fill the gap.
-        done++;
+        // Don't let one chapter take down the whole book — write a stub so
+        // the user sees the slot and can re-run to fill it.
         const msg = err instanceof Error ? err.message : String(err);
         failedChapters.push({ id: c.id, title: c.title, err: msg });
         const stub = [
@@ -81,12 +101,18 @@ export const authorStep: Step<PlanOutput, AuthorOutput> = {
           "",
         ].join("\n");
         chapters.set(c.slug, stub);
+        try {
+          await writeChapterFile(outDir, c, stub);
+        } catch {
+          /* ignore — disk-write failure on the stub itself is not fatal */
+        }
+        done++;
         const secs = ((Date.now() - tStart) / 1000).toFixed(1);
-        logger.dim(`  ✖ ${c.id} 失败（${secs}s）：${msg.slice(0, 200)}`);
+        logger.dim(
+          `  ✖ [${done}/${total}] ${c.id} 失败（${secs}s）：${msg.slice(0, 160)}`
+        );
       }
-      bar.update(done, { status: c.title });
     });
-    bar.stop();
 
     if (failedChapters.length) {
       logger.warn(
@@ -94,6 +120,8 @@ export const authorStep: Step<PlanOutput, AuthorOutput> = {
           .map((f) => f.id)
           .join(", ")}。可重跑 \`rebuildproject generate\` 补齐。`
       );
+    } else {
+      logger.dim(`  全部 ${total} 章成功落盘。`);
     }
 
     return { ...input, chapters, overviewMarkdown };

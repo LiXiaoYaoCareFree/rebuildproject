@@ -11,11 +11,32 @@ export interface WriteInput {
   chapterMarkdowns: Map<string, string>;
 }
 
-export async function writeGuide(input: WriteInput): Promise<string> {
-  const out = path.join(input.cwd, OUT_DIR);
-  await fs.mkdir(out, { recursive: true });
+export function getOutDir(cwd: string): string {
+  return path.join(cwd, OUT_DIR);
+}
 
-  // README index — written like a book's table of contents.
+export function chapterRelPath(c: Chapter): string {
+  return c.subdir ? `${c.subdir}/${c.slug}.md` : `${c.slug}.md`;
+}
+
+/**
+ * Write a single chapter (or the overview) to disk. Safe to call multiple
+ * times during Author so the rebuild-guide/ directory grows visibly while
+ * the run is in progress, instead of materializing only at Compose.
+ */
+export async function writeChapterFile(
+  outDir: string,
+  c: Chapter,
+  md: string
+): Promise<string> {
+  const target = path.join(outDir, chapterRelPath(c));
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(target, md, "utf8");
+  return target;
+}
+
+/** Write the book's front matter / TOC. Called once early in Author. */
+export async function writeReadme(outDir: string, plan: Plan): Promise<void> {
   const tocLines: string[] = [
     "# 项目搭建实战课",
     "",
@@ -31,9 +52,8 @@ export async function writeGuide(input: WriteInput): Promise<string> {
     "## 目录",
     "",
   ];
-  for (const c of input.plan.chapters) {
-    const rel = chapterRelPath(c);
-    tocLines.push(`- [${c.id} · ${c.title}](./${rel})`);
+  for (const c of plan.chapters) {
+    tocLines.push(`- [${c.id} · ${c.title}](./${chapterRelPath(c)})`);
   }
   tocLines.push(
     "",
@@ -45,16 +65,28 @@ export async function writeGuide(input: WriteInput): Promise<string> {
     "4. **完成最后一章**：你拥有一个能跑起来的完整项目，也拥有了一份可迁移到任何新项目的工程心法。",
     ""
   );
+  await fs.writeFile(path.join(outDir, "README.md"), tocLines.join("\n"), "utf8");
+}
 
-  await fs.writeFile(path.join(out, "README.md"), tocLines.join("\n"), "utf8");
+export async function ensureOutDir(cwd: string): Promise<string> {
+  const out = getOutDir(cwd);
+  await fs.mkdir(out, { recursive: true });
+  return out;
+}
 
-  // Overview chapter
+/**
+ * Final pass at Compose: re-writes README (in case plan changed mid-run)
+ * and back-fills any chapter that wasn't already written by Author.
+ */
+export async function writeGuide(input: WriteInput): Promise<string> {
+  const out = await ensureOutDir(input.cwd);
+  await writeReadme(out, input.plan);
+
   const overviewChapter = input.plan.chapters.find((c) => c.kind === "overview");
   if (overviewChapter) {
     await writeChapterFile(out, overviewChapter, input.overviewMarkdown);
   }
 
-  // Other chapters
   for (const c of input.plan.chapters) {
     if (c.kind === "overview") continue;
     const md = input.chapterMarkdowns.get(c.slug);
@@ -63,18 +95,4 @@ export async function writeGuide(input: WriteInput): Promise<string> {
   }
 
   return out;
-}
-
-function chapterRelPath(c: Chapter): string {
-  return c.subdir ? `${c.subdir}/${c.slug}.md` : `${c.slug}.md`;
-}
-
-async function writeChapterFile(
-  outDir: string,
-  c: Chapter,
-  md: string
-): Promise<void> {
-  const target = path.join(outDir, chapterRelPath(c));
-  await fs.mkdir(path.dirname(target), { recursive: true });
-  await fs.writeFile(target, md, "utf8");
 }
