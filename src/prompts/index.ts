@@ -106,6 +106,9 @@ export const CHAPTER_TEMPLATE = `为搭建实战课写《{{chapter.id}} · {{cha
 - 项目主语言：{{stack.language}}（{{stack.runtime}}）
 - 包管理器：{{stack.packageManager}}
 - 本章类型：{{chapter.kind}}
+{{#if chapter.focus}}
+- **本章聚焦**：{{chapter.focus}}（**严格限定**：不要扩散到其他文件，也不要给其他文件的完整代码块——其他文件留给它们各自的章节。）
+{{/if}}
 {{#if hasDeps}}
 - 前置子任务：{{#each chapter.deps}}《{{this}}》{{#unless @last}}, {{/unless}}{{/each}}
 {{/if}}
@@ -181,6 +184,65 @@ export const CHAPTER_TEMPLATE = `为搭建实战课写《{{chapter.id}} · {{cha
 
 直接输出 markdown，不要前言。`;
 
+export const MODULE_OVERVIEW_TEMPLATE = `为搭建实战课写《{{chapter.id}} · {{chapter.title}}》。这是 **模块总览** 章——读者读完此章会拿到这个模块的"地图"：它在系统里负责什么、内部分几块、文件之间怎么协作。**不要复制每个文件的完整代码**——文件代码留给后续每文件深挖章节。
+
+## 上下文
+- 项目主语言：{{stack.language}}（{{stack.runtime}}）
+- 模块名：{{chapter.module}}
+- 本章类型：module-overview（**禁止**输出完整源代码块，最多每文件 ≤ 15 行的关键片段示意）
+{{#if hasDeps}}
+- 前置子任务：{{#each chapter.deps}}《{{this}}》{{#unless @last}}, {{/unless}}{{/each}}
+{{/if}}
+
+## 本模块包含的文件（你需要根据它们的内容写"地图"，但**不要**整篇粘贴）
+{{#each filesContent}}
+### \`{{this.path}}\`
+\`\`\`{{this.lang}}
+{{this.contentPreview}}
+\`\`\`
+
+{{/each}}
+
+## 输出要求（必须包含以下所有小节，缺一不可）
+
+# {{chapter.id}} · {{chapter.title}}
+
+## 子任务定位
+（一段话：本模块在整本手册主线上的位置——它接在哪些前置子任务之后？它要交付什么？后续模块或测试章节会怎么用到它？）
+
+## 模块职责
+（用一段话清楚定义这个模块负责什么、不负责什么——边界感越锋利越好。然后用一张表格列出此模块的**对外契约**：导出的关键函数/类/类型 → 一句话作用。）
+
+## 内部结构
+\`\`\`mermaid
+（用 mermaid 画一张模块**内部**的组件/调用关系图：节点是文件或关键导出，边是调用/依赖。让读者一眼看清"这个模块内部是怎么转起来的"。）
+\`\`\`
+
+紧接着用一段话解读这张图——哪里是入口、哪里是内部细节、数据/控制流怎么走。
+
+## 文件清单与阅读顺序
+（按推荐学习顺序列出本模块的所有文件，每个文件一行表格 / 列表项，格式：
+- **文件路径** — 一句话角色描述 — 为什么先读它
+
+把"先读哪个、后读哪个、为什么"讲清楚——这就是后续每文件深挖章节的顺序锚。）
+
+## 阅读顺序说明
+（紧接清单后，用 2-3 段话进一步解释依赖梯度：为什么 A 在 B 之前？哪些文件可以平行读？哪些文件改起来会牵动其他模块？）
+
+## 关键设计决策（贯穿本模块）
+（列出 2-4 条本模块层面的设计决策——不是单文件层面的实现细节，而是"模块作为整体为什么这样切分"。每条说清"做了什么 / 为什么不是别的方案 / 影响了哪些文件"。）
+
+## 常见误读 / 易踩坑
+（1-3 个新人读这个模块时容易误解的点，例如"看似可以直接调 X，实际应该走 Y"。）
+
+## 精髓（模块层面的可迁移工程原则）
+（一段话：跳出本项目，这个模块的切分方式/抽象选型有哪些可以搬到别的项目里去？把它写得像一条"工程箴言"。）
+
+## 串通下一站
+（一两句话明确：读完本章后，读者下一步应该进入哪一个或哪几个"模块·文件 深挖"子任务。给出具体子任务编号，形成清晰的串联。）
+
+直接输出 markdown，不要前言。`;
+
 let registered = false;
 function register() {
   if (registered) return;
@@ -203,6 +265,16 @@ export function renderOverview(ctx: Record<string, unknown>): string {
 export function renderChapter(ctx: Record<string, unknown>): string {
   register();
   return Handlebars.compile(CHAPTER_TEMPLATE)({
+    ...ctx,
+    hasDeps:
+      Array.isArray((ctx as { chapter?: { deps?: unknown[] } }).chapter?.deps) &&
+      ((ctx as { chapter: { deps: unknown[] } }).chapter.deps.length > 0),
+  });
+}
+
+export function renderModuleOverview(ctx: Record<string, unknown>): string {
+  register();
+  return Handlebars.compile(MODULE_OVERVIEW_TEMPLATE)({
     ...ctx,
     hasDeps:
       Array.isArray((ctx as { chapter?: { deps?: unknown[] } }).chapter?.deps) &&

@@ -28,6 +28,21 @@ const DEPTH_SECTIONS = [
   "串通",         // matches "串通下一站"
 ];
 
+/**
+ * Module-overview is a *map* chapter: it explains the module's boundaries and
+ * internal graph but deliberately does NOT dump every file (per-file deep dives
+ * follow). So we ask for navigation-oriented sections instead of 实现步骤.
+ */
+const MODULE_OVERVIEW_SECTIONS = [
+  "子任务定位",
+  "模块职责",
+  "内部结构",      // matches "内部结构图" / "内部结构与协作"
+  "文件清单",      // matches "文件清单与阅读顺序"
+  "阅读顺序",
+  "精髓",
+  "串通",
+];
+
 const OVERVIEW_REQUIRED_SECTIONS = [
   "项目意图",
   "总任务",
@@ -42,13 +57,14 @@ const OVERVIEW_REQUIRED_SECTIONS = [
 ];
 
 const REQUIRED_SECTIONS_BY_KIND: Record<string, string[]> = {
-  scaffold:     ["目标", ...DEPTH_SECTIONS],
-  dependencies: ["目标", ...DEPTH_SECTIONS],
-  core:         ["目标", ...DEPTH_SECTIONS],
-  module:       ["目标", "前置", ...DEPTH_SECTIONS],
-  tests:        ["目标", ...DEPTH_SECTIONS],
-  deployment:   ["目标", ...DEPTH_SECTIONS],
-  overview:     OVERVIEW_REQUIRED_SECTIONS,
+  scaffold:          ["目标", ...DEPTH_SECTIONS],
+  dependencies:      ["目标", ...DEPTH_SECTIONS],
+  core:              ["目标", ...DEPTH_SECTIONS],
+  module:            ["目标", "前置", ...DEPTH_SECTIONS],
+  "module-overview": MODULE_OVERVIEW_SECTIONS,
+  tests:             ["目标", ...DEPTH_SECTIONS],
+  deployment:        ["目标", ...DEPTH_SECTIONS],
+  overview:          OVERVIEW_REQUIRED_SECTIONS,
 };
 
 const PLACEHOLDER_PATTERNS = [
@@ -75,13 +91,17 @@ export function validateChapter(
     }
   }
 
-  // 2. every file in this chapter must appear as a fenced code block tagged with its path
-  for (const lf of chapter.files) {
-    if (!hasFileBlock(markdown, lf.file.relPath)) {
-      issues.push({
-        kind: "missing-file-block",
-        detail: `缺少文件 \`${lf.file.relPath}\` 的完整代码块（要求形如 \`\`\`lang:${lf.file.relPath}）`,
-      });
+  // 2. every file in this chapter must appear as a fenced code block tagged
+  //    with its path — but module-overview chapters are *maps* (no per-file
+  //    code dump), so we skip the block check for them.
+  if (chapter.kind !== "module-overview") {
+    for (const lf of chapter.files) {
+      if (!hasFileBlock(markdown, lf.file.relPath)) {
+        issues.push({
+          kind: "missing-file-block",
+          detail: `缺少文件 \`${lf.file.relPath}\` 的完整代码块（要求形如 \`\`\`lang:${lf.file.relPath}）`,
+        });
+      }
     }
   }
 

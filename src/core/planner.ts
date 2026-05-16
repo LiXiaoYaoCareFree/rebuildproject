@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { Layered, LayeredFile } from "./layerer.js";
 import type { Stack } from "./stack-detector.js";
 
@@ -6,6 +7,7 @@ export type ChapterKind =
   | "scaffold"
   | "dependencies"
   | "core"
+  | "module-overview"
   | "module"
   | "tests"
   | "deployment";
@@ -20,8 +22,14 @@ export interface Chapter {
   files: LayeredFile[];
   /** prior chapter labels (readable string) to reference */
   deps: string[];
-  /** for module chapters, place under modules/ subdir */
+  /** subdir under rebuild-guide/ where the chapter lives (supports nested paths) */
   subdir?: string;
+  /** logical section the chapter belongs to (for TOC grouping) */
+  section?: string;
+  /** module name for module-overview / module chapters */
+  module?: string;
+  /** extra hint copy fed into the chapter prompt (e.g. "this chapter covers ONLY file X") */
+  focus?: string;
 }
 
 export interface Plan {
@@ -29,19 +37,88 @@ export interface Plan {
   chapters: Chapter[];
 }
 
+/* ─────────────────────────── Scaffold categorisation ─────────────────────────── */
+
+const SCAFFOLD_CATEGORIES: Array<{
+  key: string;
+  title: string;
+  match: (rel: string) => boolean;
+}> = [
+  {
+    key: "package",
+    title: "项目清单与命令入口",
+    match: (r) =>
+      r === "package.json" ||
+      r === "pyproject.toml" ||
+      r === "setup.py" ||
+      r === "setup.cfg" ||
+      r === "go.mod" ||
+      r === "Cargo.toml" ||
+      r.startsWith("bin/"),
+  },
+  {
+    key: "ts-config",
+    title: "类型与编译器配置",
+    match: (r) => r === "tsconfig.json" || /^tsconfig\..+\.json$/.test(r),
+  },
+  {
+    key: "build",
+    title: "构建产物配置",
+    match: (r) =>
+      r === "tsup.config.ts" ||
+      r === "vite.config.ts" ||
+      r === "vite.config.js" ||
+      r === "webpack.config.js" ||
+      r === "rollup.config.js",
+  },
+  {
+    key: "lint-format",
+    title: "Lint / Format / 编辑器一致性",
+    match: (r) =>
+      /^\.eslintrc(\..+)?$/.test(r) ||
+      r === ".prettierrc" ||
+      r === ".editorconfig" ||
+      r === ".nvmrc",
+  },
+  {
+    key: "vcs",
+    title: "版本控制忽略与 CI 入口",
+    match: (r) => r === ".gitignore" || r === ".gitattributes",
+  },
+  {
+    key: "docs-license",
+    title: "说明文档与许可证",
+    match: (r) =>
+      /^README(\..+)?$/i.test(r) ||
+      r === "LICENSE" ||
+      r === "LICENSE.md" ||
+      r === "NOTICE",
+  },
+];
+
+/* ─────────────────────────── Public entry ─────────────────────────── */
+
 /**
- * Planner produces a sequence of chapters that double as "子任务"——a
- * curriculum where each chapter delivers a concrete artifact and unlocks
- * the next one. Titles are written so the running heading reads:
+ * The planner produces a *fine-grained* chapter list. The output guarantees:
  *
- *   "# 01 · 子任务 01 · 选型与脚手架——把骨架立起来"
+ *   • Scaffold/Config/Core are split per logical group instead of one big chapter,
+ *     so every concept lands in its own page.
+ *   • Each source module becomes a folder under `04-modules/<module>/` with
+ *     ① a `module-overview` chapter that introduces the module's role and
+ *        internal graph (no full file dump), then
+ *     ② one chapter per file (or per tightly-coupled pair) drilling into the
+ *        file's responsibilities.
+ *   • The book TOC reads like a real table of contents: top-level sections
+ *     (Scaffold / Config / Core / Modules / Tests / Ship) with nested chapters
+ *     beneath them.
  *
- * That phrasing keeps the "做中学" subtask chain visible in every page.
+ * Target depth: for any non-trivial codebase the planner will emit ≥20 chapters
+ * so the reader can navigate one concept at a time.
  */
-export function planChapters(layered: Layered, stack: Stack): Plan {
+export function planChapters(layered: Layered, _stack: Stack): Plan {
   const chapters: Chapter[] = [];
 
-  // 00 立意：从代码反推真实意图、画出架构、铺开学习路线 + 提出总任务 + 拆子任务
+  // ── 00 · overview ──────────────────────────────────────────────────────────
   chapters.push({
     id: "00",
     slug: "00-intent",
@@ -49,91 +126,207 @@ export function planChapters(layered: Layered, stack: Stack): Plan {
     kind: "overview",
     files: [],
     deps: [],
+    section: "总览",
   });
 
-  // 01 选型：脚手架 = 选什么栈、怎么初始化项目、为什么这么选
-  if (layered.byLayer.L1.length) {
-    chapters.push({
-      id: "01",
-      slug: "01-stack-and-scaffold",
-      title: "子任务 01 · 选型与脚手架——把骨架立起来",
-      kind: "scaffold",
-      files: layered.byLayer.L1,
-      deps: ["00 · 整体浏览与总任务"],
-    });
-  }
-
-  // 02 配置 / 依赖 / 契约
-  if (layered.byLayer.L2.length) {
-    chapters.push({
-      id: "02",
-      slug: "02-deps-and-config",
-      title: "子任务 02 · 依赖与配置——把工程跑起来",
-      kind: "dependencies",
-      files: layered.byLayer.L2,
-      deps: ["01 · 选型与脚手架"],
-    });
-  }
-
-  // 03 核心抽象：入口 + 工具 + 跨模块契约
-  if (layered.byLayer.L3.length) {
-    chapters.push({
-      id: "03",
-      slug: "03-core-abstractions",
-      title: `子任务 03 · 核心抽象——铺好跨模块的"语言"`,
-      kind: "core",
-      files: layered.byLayer.L3,
-      deps: ["02 · 依赖与配置"],
-    });
-  }
-
-  // 04-* 模块逐深：每个模块独立一章，按依赖序进入
-  const moduleBuckets = groupBy(layered.byLayer.L4, (lf) => lf.module ?? "core");
-  let idx = 0;
-  for (const [name, list] of moduleBuckets) {
-    if (list.length === 0) continue;
-    const id = `04-${pad(idx++, 2)}`;
+  // ── 01 · scaffold (split by category) ──────────────────────────────────────
+  const scaffoldBuckets = bucketScaffold(layered.byLayer.L1);
+  let scaffoldIdx = 0;
+  for (const bucket of scaffoldBuckets) {
+    if (bucket.files.length === 0) continue;
+    scaffoldIdx++;
+    const id = `01-${pad(scaffoldIdx, 2)}`;
     chapters.push({
       id,
-      slug: `${id}-${slugify(name)}`,
-      title: `子任务 ${id} · 模块深挖：${name}——把血肉填进骨架`,
-      kind: "module",
-      files: list,
-      deps: ["03 · 核心抽象"],
-      subdir: "04-modules",
+      slug: `${id}-${slugify(bucket.key)}`,
+      title: `子任务 ${id} · ${bucket.title}——把骨架立起来`,
+      kind: "scaffold",
+      files: bucket.files,
+      deps: ["00 · 整体浏览与总任务"],
+      subdir: "01-scaffold",
+      section: "脚手架",
     });
   }
+  const scaffoldDoneLabel = scaffoldIdx
+    ? `01-* · 全部脚手架（共 ${scaffoldIdx} 节）`
+    : "00 · 整体浏览与总任务";
 
-  // 05 韧性与测试：错误路径、边界、回归保护
-  if (layered.byLayer.L5.length) {
-    const modDeps = chapters
-      .filter((c) => c.kind === "module")
-      .map((c) => c.id);
+  // ── 02 · deps & config (one chapter per file) ──────────────────────────────
+  const l2Files = [...layered.byLayer.L2];
+  let configIdx = 0;
+  for (const lf of l2Files) {
+    configIdx++;
+    const id = `02-${pad(configIdx, 2)}`;
+    const baseName = path.posix.basename(lf.file.relPath);
     chapters.push({
-      id: "05",
-      slug: "05-resilience-and-tests",
-      title: "子任务 05 · 韧性与测试——守住边界，防止退化",
+      id,
+      slug: `${id}-${slugify(baseName.replace(/\.[^.]+$/, ""))}`,
+      title: `子任务 ${id} · 配置项 \`${baseName}\`——让工程能跑起来`,
+      kind: "dependencies",
+      files: [lf],
+      deps: [scaffoldDoneLabel],
+      subdir: "02-config",
+      section: "依赖与配置",
+      focus: `本章只关注 ${lf.file.relPath} 这一份配置：它是干什么的、为什么需要、字段含义。`,
+    });
+  }
+  const configDoneLabel = configIdx
+    ? `02-* · 全部依赖与配置（共 ${configIdx} 节）`
+    : scaffoldDoneLabel;
+
+  // ── 03 · core abstractions (one chapter per file) ─────────────────────────
+  const l3Files = [...layered.byLayer.L3];
+  let coreIdx = 0;
+  for (const lf of l3Files) {
+    coreIdx++;
+    const id = `03-${pad(coreIdx, 2)}`;
+    const baseName = path.posix.basename(lf.file.relPath);
+    chapters.push({
+      id,
+      slug: `${id}-${slugify(baseName.replace(/\.[^.]+$/, ""))}`,
+      title: `子任务 ${id} · 核心抽象 \`${lf.file.relPath}\`——铺好跨模块的"语言"`,
+      kind: "core",
+      files: [lf],
+      deps: [configDoneLabel],
+      subdir: "03-core",
+      section: "核心抽象",
+      focus: `本章只剖析 ${lf.file.relPath} 这一文件——它的职责、关键导出、为什么放在这一层。`,
+    });
+  }
+  const coreDoneLabel = coreIdx
+    ? `03-* · 全部核心抽象（共 ${coreIdx} 节）`
+    : configDoneLabel;
+
+  // ── 04 · modules (overview + per-file deep dives) ─────────────────────────
+  const moduleBuckets = groupBy(layered.byLayer.L4, (lf) => lf.module ?? "core");
+  let moduleIdx = 0;
+  for (const [moduleName, list] of moduleBuckets) {
+    if (list.length === 0) continue;
+    moduleIdx++;
+    const modId = pad(moduleIdx, 2);
+    const moduleSlug = slugify(moduleName);
+    const moduleSubdir = `04-modules/${moduleSlug}`;
+
+    // ① module overview (only if the module has ≥2 files — otherwise the file
+    //    chapter alone is enough and an overview would be filler)
+    if (list.length >= 2) {
+      const id = `04-${modId}-00`;
+      chapters.push({
+        id,
+        slug: `${id}-overview`,
+        title: `子任务 ${id} · 模块《${moduleName}》总览——边界、职责、内部地图`,
+        kind: "module-overview",
+        files: list,
+        deps: [coreDoneLabel],
+        subdir: moduleSubdir,
+        section: `模块 · ${moduleName}`,
+        module: moduleName,
+        focus: `本章不重复列文件代码，只交付：这个模块在系统里负责什么 / 内部分几块 / 文件之间怎么协作 / 哪些是入口、哪些是内部细节。`,
+      });
+    }
+
+    // ② per-file deep dives
+    let fileIdx = 0;
+    for (const lf of list) {
+      fileIdx++;
+      const id = `04-${modId}-${pad(fileIdx, 2)}`;
+      const baseName = path.posix.basename(lf.file.relPath);
+      const titleName = baseName.replace(/\.[^.]+$/, "");
+      chapters.push({
+        id,
+        slug: `${id}-${slugify(titleName)}`,
+        title: `子任务 ${id} · 模块《${moduleName}》· 文件 \`${baseName}\`——深挖`,
+        kind: "module",
+        files: [lf],
+        deps:
+          list.length >= 2
+            ? [`04-${modId}-00 · ${moduleName} 总览`]
+            : [coreDoneLabel],
+        subdir: moduleSubdir,
+        section: `模块 · ${moduleName}`,
+        module: moduleName,
+        focus: `本章只攻克一个文件：${lf.file.relPath}。讲清它解决什么问题、关键设计、内部难点，并完整给出代码。`,
+      });
+    }
+  }
+  const modulesDoneLabel = moduleIdx
+    ? `04-* · 全部模块（共 ${moduleIdx} 个模块）`
+    : coreDoneLabel;
+
+  // ── 05 · tests (one chapter per test file when feasible) ──────────────────
+  const l5Files = [...layered.byLayer.L5];
+  let testsIdx = 0;
+  for (const lf of l5Files) {
+    testsIdx++;
+    const id = `05-${pad(testsIdx, 2)}`;
+    const baseName = path.posix.basename(lf.file.relPath);
+    chapters.push({
+      id,
+      slug: `${id}-${slugify(baseName.replace(/\.[^.]+$/, ""))}`,
+      title: `子任务 ${id} · 测试 \`${lf.file.relPath}\`——守住边界`,
       kind: "tests",
-      files: layered.byLayer.L5,
-      deps: modDeps.length
-        ? [`04-* · 全部模块（${modDeps.join(", ")}）`]
-        : ["03 · 核心抽象"],
+      files: [lf],
+      deps: [modulesDoneLabel],
+      subdir: "05-tests",
+      section: "韧性与测试",
+      focus: `本章只剖析这一份测试：它在断言什么、覆盖了哪条主路径或哪条边界、如何防止回归。`,
     });
   }
+  const testsDoneLabel = testsIdx
+    ? `05-* · 全部测试（共 ${testsIdx} 节）`
+    : modulesDoneLabel;
 
-  // 06 出厂：构建、部署、CI、可观测
-  if (layered.byLayer.L6.length) {
+  // ── 06 · ship & ops (one chapter per artifact) ────────────────────────────
+  const l6Files = [...layered.byLayer.L6];
+  let shipIdx = 0;
+  for (const lf of l6Files) {
+    shipIdx++;
+    const id = `06-${pad(shipIdx, 2)}`;
+    const baseName = path.posix.basename(lf.file.relPath);
     chapters.push({
-      id: "06",
-      slug: "06-ship-and-ops",
-      title: "子任务 06 · 出厂与运维——从 main 分支到生产环境",
+      id,
+      slug: `${id}-${slugify(baseName.replace(/\.[^.]+$/, ""))}`,
+      title: `子任务 ${id} · 出厂工件 \`${lf.file.relPath}\`——从仓库到生产`,
       kind: "deployment",
-      files: layered.byLayer.L6,
-      deps: ["前面全部子任务"],
+      files: [lf],
+      deps: [testsDoneLabel],
+      subdir: "06-ship",
+      section: "出厂与运维",
+      focus: `本章只讲这一份运维工件——它在交付链路里的位置、关键字段、常见踩坑。`,
     });
   }
 
-  return { stack, chapters };
+  return { stack: _stack, chapters };
+}
+
+/* ─────────────────────────── Helpers ─────────────────────────── */
+
+interface ScaffoldBucket {
+  key: string;
+  title: string;
+  files: LayeredFile[];
+}
+
+function bucketScaffold(files: LayeredFile[]): ScaffoldBucket[] {
+  const buckets: ScaffoldBucket[] = SCAFFOLD_CATEGORIES.map((c) => ({
+    key: c.key,
+    title: c.title,
+    files: [],
+  }));
+  const misc: ScaffoldBucket = { key: "misc", title: "其他脚手架文件", files: [] };
+
+  for (const lf of files) {
+    const cat = SCAFFOLD_CATEGORIES.findIndex((c) => c.match(lf.file.relPath));
+    if (cat >= 0) {
+      buckets[cat]!.files.push(lf);
+    } else {
+      misc.files.push(lf);
+    }
+  }
+
+  const result = buckets.filter((b) => b.files.length > 0);
+  if (misc.files.length > 0) result.push(misc);
+  return result;
 }
 
 function groupBy<T, K>(arr: T[], key: (t: T) => K): Map<K, T[]> {
@@ -148,7 +341,12 @@ function groupBy<T, K>(arr: T[], key: (t: T) => K): Map<K, T[]> {
 }
 
 function slugify(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "module";
+  return (
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || "item"
+  );
 }
 
 function pad(n: number, w: number): string {

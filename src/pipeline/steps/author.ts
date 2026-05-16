@@ -2,7 +2,11 @@ import path from "node:path";
 import chalk from "chalk";
 import type { Step, PlanOutput, AuthorOutput } from "../types.js";
 import type { Chapter } from "../../core/planner.js";
-import { buildOverview, buildChapter } from "../../core/chapter-builder.js";
+import {
+  buildOverview,
+  buildChapter,
+  buildModuleOverview,
+} from "../../core/chapter-builder.js";
 import { validateChapter, summarizeIssues } from "../../core/validators.js";
 import { mapWithLimit } from "../../utils/concurrency.js";
 import { logger } from "../../utils/logger.js";
@@ -136,7 +140,10 @@ async function authorOne(
 ): Promise<string> {
   const { provider, cfg } = ctx;
 
-  let md = await buildChapter({
+  const builder =
+    chapter.kind === "module-overview" ? buildModuleOverview : buildChapter;
+
+  let md = await builder({
     provider,
     language: cfg.language,
     stack: input.stack,

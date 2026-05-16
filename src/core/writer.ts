@@ -52,7 +52,30 @@ export async function writeReadme(outDir: string, plan: Plan): Promise<void> {
     "## 目录",
     "",
   ];
+  // Group chapters by `section` so the TOC reads like a real table of
+  // contents — top-level sections (脚手架 / 配置 / 核心 / 模块 / 测试 / …)
+  // with nested chapter links. Chapters without a section are listed flat.
+  const grouped = new Map<string, typeof plan.chapters>();
+  const flatTail: typeof plan.chapters = [];
   for (const c of plan.chapters) {
+    const sec = c.section?.trim();
+    if (!sec) {
+      flatTail.push(c);
+      continue;
+    }
+    const list = grouped.get(sec) ?? [];
+    list.push(c);
+    grouped.set(sec, list);
+  }
+  for (const [section, list] of grouped) {
+    tocLines.push(`### ${section}`);
+    tocLines.push("");
+    for (const c of list) {
+      tocLines.push(`- [${c.id} · ${c.title}](./${chapterRelPath(c)})`);
+    }
+    tocLines.push("");
+  }
+  for (const c of flatTail) {
     tocLines.push(`- [${c.id} · ${c.title}](./${chapterRelPath(c)})`);
   }
   tocLines.push(

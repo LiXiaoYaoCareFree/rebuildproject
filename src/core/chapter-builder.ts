@@ -8,6 +8,7 @@ import {
   renderSystem,
   renderOverview,
   renderChapter,
+  renderModuleOverview,
 } from "../prompts/index.js";
 
 const EXT_TO_LANG: Record<string, string> = {
@@ -87,6 +88,59 @@ export async function buildChapter(input: BuildChapterInput): Promise<string> {
     temperature: 0.3,
   });
   return res.text.trim();
+}
+
+/**
+ * Build a module-overview chapter. Unlike `buildChapter`, this fed the model
+ * only short **previews** of each file (head + signatures) — the goal is a
+ * navigation map, not a full code dump.
+ */
+export async function buildModuleOverview(
+  input: BuildChapterInput
+): Promise<string> {
+  const filesContent = await Promise.all(
+    input.chapter.files.map(async (lf) => {
+      const raw = await lf.file.read();
+      return {
+        path: lf.file.relPath,
+        lang: langForFile(lf.file.relPath, lf.file.ext),
+        contentPreview: previewForOverview(raw),
+      };
+    })
+  );
+
+  const userPrompt = renderModuleOverview({
+    stack: input.stack,
+    chapter: input.chapter,
+    filesContent,
+  });
+
+  const res = await input.provider.complete({
+    messages: [
+      { role: "system", content: renderSystem(input.language) },
+      { role: "user", content: userPrompt },
+    ],
+    maxTokens: 8000,
+    temperature: 0.3,
+  });
+  return res.text.trim();
+}
+
+/**
+ * Compress a source file down to "shape only": the first ~80 lines, but with
+ * long function bodies collapsed. We keep imports, exports, type defs, function
+ * signatures — enough to draw a module map without re-dumping the whole file.
+ */
+function previewForOverview(src: string): string {
+  const MAX_LINES = 80;
+  const MAX_CHARS = 4000;
+  const lines = src.split("\n");
+  const head = lines.slice(0, MAX_LINES).join("\n");
+  const truncated = head.length > MAX_CHARS ? head.slice(0, MAX_CHARS) + "\n/* …前 80 行截断… */" : head;
+  if (lines.length > MAX_LINES) {
+    return truncated + `\n/* …省略剩余 ${lines.length - MAX_LINES} 行（详见每文件深挖章节）… */`;
+  }
+  return truncated;
 }
 
 function truncate(s: string, max: number): string {
